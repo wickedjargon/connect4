@@ -1,0 +1,17 @@
+[Unit]
+Description=connect4 - two-player connect 4 over SSE
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/connect4
+ExecStart=/opt/connect4/connect4
+Restart=on-failure
+RestartSec=5
+
+Environment=PORT=8085
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="/favicon.ico">
+<title>connect4</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #16181d;
+    --muted: #70757f;
+    --frame1: #2069cf;
+    --frame2: #123f88;
+    --slot1: #cfd6df;
+    --slot2: #b9c2ce;
+    --red1: #ff6a5e;
+    --red2: #d92b1f;
+    --red3: #a31408;
+    --yel1: #ffd94d;
+    --yel2: #f0b400;
+    --yel3: #b98600;
+    --online: #2fa458;
+    --btnbg: rgba(128,128,128,0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101216;
+      --fg: #e8eaee;
+      --muted: #8b919c;
+      --frame1: #1c56a6;
+      --frame2: #0d2b5c;
+      --slot1: #262b33;
+      --slot2: #1b1f26;
+      --red1: #ff7a6e;
+      --red2: #e33528;
+      --red3: #8f1207;
+      --yel1: #ffe066;
+      --yel2: #f5bd0c;
+      --yel3: #a37600;
+    }
+  }
+  html { background: var(--bg); color: var(--fg); }
+  body { margin: 0; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 15px; }
+  #wrap { max-width: 460px; margin: 0 auto; padding: 1.2em 1em 2em; }
+  header { color: var(--muted); margin-bottom: 1.2em; }
+  .bar { display: flex; align-items: center; gap: 0.5em; min-height: 1.8em; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.online { background: var(--online); }
+  .dot.red { background: var(--red2); }
+  .dot.yellow { background: var(--yel2); }
+  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag { color: var(--muted); }
+  svg { display: block; width: 100%; height: auto; margin: 0.6em 0; }
+  #frame { fill: url(#gframe); filter: drop-shadow(0 5px 14px rgba(0,0,0,0.28)); }
+  #hits rect { fill: transparent; }
+  #hits rect.active { cursor: pointer; }
+  .disc-ring { fill: none; stroke: rgba(0,0,0,0.20); stroke-width: 7; }
+  #ghost { opacity: 0; pointer-events: none; transition: opacity 0.1s; }
+  #ghost.show { opacity: 0.45; }
+  #discs .dim { opacity: 0.35; transition: opacity 0.5s; }
+  #discs .win .core { stroke: var(--bg); stroke-width: 5; animation: winpulse 0.9s ease-in-out infinite alternate; }
+  @keyframes winpulse { from { stroke-opacity: 0.25; } to { stroke-opacity: 1; } }
+  #statusbar { justify-content: space-between; }
+  #status { flex: 1; }
+  button {
+    font-family: inherit; font-size: 1em;
+    background: var(--btnbg); color: inherit;
+    border: 1px solid var(--muted); border-radius: 8px;
+    padding: 0.4em 1.3em; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--fg); }
+  button:disabled { opacity: 0.55; cursor: default; }
+  #busy { margin-top: 2em; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <header>connect4.fftp.io</header>
+
+  <div id="busy" hidden>a game is in progress. try again later.</div>
+
+  <div id="game" hidden>
+    <div class="bar" id="oppbar">
+      <span class="dot" id="oppdot"></span>
+      <span class="name" id="oppname">waiting for opponent...</span>
+    </div>
+
+    <svg id="board" viewBox="0 0 740 755" aria-label="connect 4 board">
+      <defs>
+        <linearGradient id="gframe" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="var(--frame1)"/>
+          <stop offset="1" stop-color="var(--frame2)"/>
+        </linearGradient>
+        <radialGradient id="gslot" cx="0.5" cy="0.4" r="0.7">
+          <stop offset="0" stop-color="var(--slot2)"/>
+          <stop offset="1" stop-color="var(--slot1)"/>
+        </radialGradient>
+        <radialGradient id="gred" cx="0.37" cy="0.34" r="0.8">
+          <stop offset="0" stop-color="var(--red1)"/>
+          <stop offset="0.55" stop-color="var(--red2)"/>
+          <stop offset="1" stop-color="var(--red3)"/>
+        </radialGradient>
+        <radialGradient id="gyellow" cx="0.37" cy="0.34" r="0.8">
+          <stop offset="0" stop-color="var(--yel1)"/>
+          <stop offset="0.55" stop-color="var(--yel2)"/>
+          <stop offset="1" stop-color="var(--yel3)"/>
+        </radialGradient>
+      </defs>
+      <g id="slots"></g>
+      <g id="discs"></g>
+      <path id="frame" fill-rule="evenodd"/>
+      <g id="ghost">
+        <circle class="core" r="44"/>
+        <circle class="disc-ring" r="27"/>
+      </g>
+      <g id="hits"></g>
+    </svg>
+
+    <div class="bar" id="youbar">
+      <span class="dot" id="youdot"></span>
+      <span class="name" id="youname"></span>
+    </div>
+    <div class="bar" id="statusbar">
+      <span id="status">connecting...</span>
+      <button id="action" hidden></button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ---- board geometry ----
+const COLS = 7, ROWS = 6, CELL = 100;
+const PAD = 20, RUNWAY = 115;           // discs drop from the runway above the frame
+const R_HOLE = 40, R_DISC = 44;
+const cx = c => PAD + 50 + c * CELL;
+const cy = r => RUNWAY + 55 + r * CELL;
+const GHOST_Y = 55;
+
+const $ = id => document.getElementById(id);
+const svgEl = (tag, attrs = {}) => {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+};
+
+// frame: rounded rect with 42 holes punched out (even-odd fill)
+function buildBoard() {
+  const w = COLS * CELL + 2 * (PAD - 10), h = ROWS * CELL + 40;
+  let d = `M30,${RUNWAY} h${w - 36} a18,18 0 0 1 18,18 v${h - 36} a18,18 0 0 1 -18,18 h-${w - 36} a18,18 0 0 1 -18,-18 v-${h - 36} a18,18 0 0 1 18,-18 z`;
+  for (let r = 0; r < ROWS; r++)
+    for (let c = 0; c < COLS; c++)
+      d += ` M${cx(c) - R_HOLE},${cy(r)} a${R_HOLE},${R_HOLE} 0 1 0 ${2 * R_HOLE},0 a${R_HOLE},${R_HOLE} 0 1 0 -${2 * R_HOLE},0 z`;
+  $('frame').setAttribute('d', d);
+
+  for (let r = 0; r < ROWS; r++)
+    for (let c = 0; c < COLS; c++)
+      $('slots').appendChild(svgEl('circle', { cx: cx(c), cy: cy(r), r: R_HOLE, fill: 'url(#gslot)' }));
+
+  for (let c = 0; c < COLS; c++) {
+    const hit = svgEl('rect', { x: PAD + c * CELL, y: 0, width: CELL, height: 755, 'data-col': c });
+    hit.addEventListener('pointerenter', () => showGhost(c));
+    hit.addEventListener('pointerleave', hideGhost);
+    hit.addEventListener('click', () => clickCol(c));
+    $('hits').appendChild(hit);
+  }
+}
+
+// ---- session & connection ----
+const sid = sessionStorage.c4sid || (sessionStorage.c4sid = crypto.randomUUID());
+let state = null;
+let discEls = new Map();   // "r,c" -> <g>
+let discCount = 0;
+let graceTimer = null;
+
+const DEMO = new URLSearchParams(location.search).has('demo');
+
+function post(path, body) {
+  if (DEMO) return;
+  fetch(path, {
+    method: 'POST',
+    headers: { 'X-Session': sid, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : null,
+  });
+}
+
+// ---- interaction ----
+const myTurn = () => state && state.phase === 'playing' && state.turn === state.you && !state.graceEnd;
+
+function showGhost(c) {
+  if (!myTurn() || state.board[0][c] !== 0) return;
+  const g = $('ghost');
+  g.querySelector('.core').setAttribute('fill', state.you === 1 ? 'url(#gred)' : 'url(#gyellow)');
+  g.setAttribute('transform', `translate(${cx(c)},${GHOST_Y})`);
+  g.classList.add('show');
+}
+function hideGhost() { $('ghost').classList.remove('show'); }
+
+function clickCol(c) {
+  if (!myTurn() || state.board[0][c] !== 0) return;
+  hideGhost();
+  post('/move', { col: c });
+}
+
+// ---- rendering ----
+function addDisc(r, c, val, animate) {
+  const g = svgEl('g', { transform: `translate(${cx(c)},${cy(r)})` });
+  g.appendChild(svgEl('circle', { class: 'core', r: R_DISC, fill: val === 1 ? 'url(#gred)' : 'url(#gyellow)' }));
+  g.appendChild(svgEl('circle', { class: 'disc-ring', r: 27 }));
+  $('discs').appendChild(g);
+  discEls.set(r + ',' + c, g);
+  if (animate) {
+    const dist = cy(r) - GHOST_Y;
+    const dur = 220 + r * 55;
+    g.animate(
+      [
+        { transform: `translate(${cx(c)}px,${GHOST_Y}px)`, easing: 'cubic-bezier(0.5,0,1,0.6)' },
+        { transform: `translate(${cx(c)}px,${cy(r)}px)`, offset: 0.72, easing: 'cubic-bezier(0,0.4,0.5,1)' },
+        { transform: `translate(${cx(c)}px,${cy(r) - Math.min(26, dist * 0.05)}px)`, offset: 0.86, easing: 'cubic-bezier(0.5,0,1,0.6)' },
+        { transform: `translate(${cx(c)}px,${cy(r)}px)` },
+      ],
+      { duration: dur }
+    );
+  }
+}
+
+function syncDiscs() {
+  const count = state.board.flat().filter(v => v).length;
+  if (count < discCount) {          // board was reset
+    $('discs').replaceChildren();
+    discEls = new Map();
+  }
+  for (let r = 0; r < ROWS; r++)
+    for (let c = 0; c < COLS; c++) {
+      const v = state.board[r][c];
+      if (!v || discEls.has(r + ',' + c)) continue;
+      const isLast = state.lastMove && state.lastMove[0] === r && state.lastMove[1] === c;
+      addDisc(r, c, v, isLast && count - discEls.size === 1);
+    }
+  discCount = count;
+
+  const winKeys = new Set((state.winLine || []).map(([r, c]) => r + ',' + c));
+  for (const [key, el] of discEls) {
+    el.classList.toggle('win', winKeys.has(key));
+    el.classList.toggle('dim', winKeys.size > 0 && !winKeys.has(key));
+  }
+}
+
+function setStatus(text, dotClass) {
+  $('status').textContent = text;
+  $('youdot').className = 'dot ' + (dotClass || '');
+}
+
+function render() {
+  clearInterval(graceTimer);
+  const s = state;
+  $('busy').hidden = s.phase !== 'busy';
+  $('game').hidden = s.phase === 'busy';
+  if (s.phase === 'busy') return;
+
+  const you = s.you === 1 ? 'red' : 'yellow';
+  const opp = s.you === 1 ? 'yellow' : 'red';
+  $('youname').innerHTML = `${s.yourIP} <span class="tag">(you)</span>`;
+  $('youdot').className = 'dot ' + you;
+
+  if (s.oppIP) {
+    $('oppname').textContent = s.oppIP + (s.oppOnline ? '' : ' — offline');
+    $('oppdot').className = 'dot ' + (s.oppOnline ? opp : '');
+  } else {
+    $('oppname').textContent = 'waiting for opponent...';
+    $('oppdot').className = 'dot';
+  }
+
+  syncDiscs();
+  if (!myTurn()) hideGhost();
+
+  const action = $('action');
+  action.hidden = true;
+  action.disabled = false;
+
+  if (s.phase === 'waiting') {
+    setStatus('waiting for opponent...', '');
+  } else if (s.phase === 'ready') {
+    setStatus('opponent connected', you);
+    action.textContent = 'start game';
+    action.hidden = false;
+    action.onclick = () => post('/start');
+  } else if (s.phase === 'playing') {
+    if (s.graceEnd) {
+      const tick = () => {
+        const left = Math.max(0, s.graceEnd - Math.floor(Date.now() / 1000));
+        setStatus(`opponent disconnected — ${left}s to reconnect`, '');
+      };
+      tick();
+      graceTimer = setInterval(tick, 1000);
+    } else {
+      setStatus(s.turn === s.you ? 'your turn' : "opponent's turn", s.turn === s.you ? you : opp);
+    }
+  } else if (s.phase === 'finished') {
+    if (s.winReason === 'draw') setStatus('draw', '');
+    else if (s.winReason === 'forfeit')
+      setStatus(s.winner === s.you ? 'opponent left — you win' : 'you forfeited', '');
+    else setStatus(s.winner === s.you ? 'you win' : 'you lose', s.winner === s.you ? you : opp);
+
+    if (s.oppIP) {
+      action.textContent = s.rematchYou ? 'rematch offered...' : s.rematchOpp ? 'accept rematch' : 'rematch';
+      action.disabled = s.rematchYou;
+      action.hidden = false;
+      action.onclick = () => post('/rematch');
+    } else if (s.winReason === 'forfeit') {
+      setStatus('opponent left — you win. waiting for a new opponent...', '');
+    }
+  }
+}
+
+// ---- boot ----
+buildBoard();
+
+if (DEMO) {
+  state = {
+    phase: 'playing', you: 1, turn: 1, yourIP: '203.0.113.7', oppIP: '198.51.100.4',
+    oppOnline: true, winner: 0, winReason: '', winLine: null, lastMove: [3, 3],
+    rematchYou: false, rematchOpp: false, graceEnd: 0,
+    board: [
+      [0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0],
+      [0,0,0,1,0,0,0],
+      [0,0,2,2,1,0,0],
+      [0,1,1,2,2,0,0],
+    ],
+  };
+  render();
+} else {
+  const es = new EventSource('/events?session=' + sid);
+  es.onmessage = e => { state = JSON.parse(e.data); render(); };
+  es.onerror = () => {
+    if (!state || state.phase !== 'busy') setStatus('reconnecting...', '');
+  };
+}
+</script>
+</body>
+</html>
