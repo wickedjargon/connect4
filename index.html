@@ -184,12 +184,13 @@ let state = null;
 let discEls = new Map();   // "r,c" -> <g>
 let discCount = 0;
 let graceTimer = null;
+let pendingCol = null;     // in-flight move: ghost stays parked on this column until the server responds
 
 const DEMO = new URLSearchParams(location.search).has('demo');
 
 function post(path, body) {
-  if (DEMO) return;
-  fetch(path, {
+  if (DEMO) return Promise.resolve();
+  return fetch(path, {
     method: 'POST',
     headers: { 'X-Session': sid, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : null,
@@ -209,10 +210,14 @@ function showGhost(c) {
 function hideGhost() { $('ghost').classList.remove('show'); }
 
 function clickCol(c) {
-  if (!myTurn() || state.board[0][c] !== 0) return;
-  // keep the ghost up while the move is in flight; render() hides it in the
-  // same frame the falling disc appears, so the ghost morphs into the drop
-  post('/move', { col: c });
+  if (pendingCol !== null || !myTurn() || state.board[0][c] !== 0) return;
+  if (DEMO) return; // no server round trip in demo — nothing to lock on
+  // keep the ghost parked on this column while the move is in flight; render()
+  // hides it in the same frame the falling disc appears, so it morphs into the drop
+  pendingCol = c;
+  post('/move', { col: c })
+    .then(r => { if (!r.ok) throw 0; })
+    .catch(() => { pendingCol = null; hideGhost(); });
 }
 
 // column under the pointer, or null when off the board
@@ -223,6 +228,7 @@ function aimCol(e) {
 }
 
 function aim(c) {
+  if (pendingCol !== null) return;   // move in flight — ghost is locked in place
   if (c === null || !myTurn() || state.board[0][c] !== 0) hideGhost();
   else showGhost(c);
 }
@@ -241,10 +247,10 @@ function bindInput() {
     aiming = false;
     const c = aimCol(e);
     if (c !== null) clickCol(c);
-    else hideGhost();
+    else if (pendingCol === null) hideGhost();
   });
-  hits.addEventListener('pointercancel', () => { aiming = false; hideGhost(); });
-  hits.addEventListener('pointerleave', () => { if (!aiming) hideGhost(); });
+  hits.addEventListener('pointercancel', () => { aiming = false; if (pendingCol === null) hideGhost(); });
+  hits.addEventListener('pointerleave', () => { if (!aiming && pendingCol === null) hideGhost(); });
   window.addEventListener('pointerup', () => { aiming = false; });
 }
 
@@ -383,7 +389,7 @@ if (DEMO) {
   const connect = () => {
     const old = es;   // open the new stream before closing the old: no offline gap
     es = new EventSource('/events?session=' + sid);
-    es.onmessage = e => { state = JSON.parse(e.data); render(); };
+    es.onmessage = e => { state = JSON.parse(e.data); pendingCol = null; render(); };
     es.onerror = () => {
       if (!state || state.phase !== 'busy') setStatus('reconnecting...', '');
     };
