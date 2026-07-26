@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="icon" href="/favicon.ico">
 <title>connect4</title>
 <style>
@@ -42,7 +42,10 @@
   }
   html { background: var(--bg); color: var(--fg); }
   body { margin: 0; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 15px; }
-  #wrap { max-width: 460px; margin: 0 auto; padding: 1.2em 1em 2em; }
+  #wrap {
+    max-width: 460px; margin: 0 auto;
+    padding: 1.2em max(1em, env(safe-area-inset-right)) calc(2em + env(safe-area-inset-bottom)) max(1em, env(safe-area-inset-left));
+  }
   header { color: var(--muted); margin-bottom: 1.2em; }
   .bar { display: flex; align-items: center; gap: 0.5em; min-height: 1.8em; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
@@ -51,10 +54,14 @@
   .dot.yellow { background: var(--yel2); }
   .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tag { color: var(--muted); }
-  svg { display: block; width: 100%; height: auto; margin: 0.6em 0; }
+  svg {
+    display: block; width: 100%; height: auto; margin: 0.6em 0;
+    max-height: 76vh; max-height: 76dvh;
+    user-select: none; -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
   #frame { fill: url(#gframe); filter: drop-shadow(0 5px 14px rgba(0,0,0,0.28)); }
-  #hits rect { fill: transparent; }
-  #hits rect.active { cursor: pointer; }
+  #hits rect { fill: transparent; cursor: pointer; touch-action: none; }
   .disc-ring { fill: none; stroke: rgba(0,0,0,0.20); stroke-width: 7; }
   #ghost { opacity: 0; pointer-events: none; transition: opacity 0.1s; }
   #ghost.show { opacity: 0.45; }
@@ -68,8 +75,14 @@
     background: var(--btnbg); color: inherit;
     border: 1px solid var(--muted); border-radius: 8px;
     padding: 0.4em 1.3em; cursor: pointer;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
   }
-  button:hover:not(:disabled) { border-color: var(--fg); }
+  @media (hover: hover) {
+    button:hover:not(:disabled) { border-color: var(--fg); }
+  }
+  @media (pointer: coarse) {
+    button { min-height: 44px; padding: 0.5em 1.5em; }
+  }
   button:disabled { opacity: 0.55; cursor: default; }
   #busy { margin-top: 2em; }
   [hidden] { display: none !important; }
@@ -160,13 +173,8 @@ function buildBoard() {
     for (let c = 0; c < COLS; c++)
       $('slots').appendChild(svgEl('circle', { cx: cx(c), cy: cy(r), r: R_HOLE, fill: 'url(#gslot)' }));
 
-  for (let c = 0; c < COLS; c++) {
-    const hit = svgEl('rect', { x: PAD + c * CELL, y: 0, width: CELL, height: 755, 'data-col': c });
-    hit.addEventListener('pointerenter', () => showGhost(c));
-    hit.addEventListener('pointerleave', hideGhost);
-    hit.addEventListener('click', () => clickCol(c));
-    $('hits').appendChild(hit);
-  }
+  for (let c = 0; c < COLS; c++)
+    $('hits').appendChild(svgEl('rect', { x: PAD + c * CELL, y: 0, width: CELL, height: 755 }));
 }
 
 // ---- session & connection ----
@@ -203,6 +211,37 @@ function clickCol(c) {
   if (!myTurn() || state.board[0][c] !== 0) return;
   hideGhost();
   post('/move', { col: c });
+}
+
+// column under the pointer, or null when off the board
+function aimCol(e) {
+  const p = new DOMPoint(e.clientX, e.clientY).matrixTransform($('board').getScreenCTM().inverse());
+  const c = Math.floor((p.x - PAD) / CELL);
+  return c >= 0 && c < COLS ? c : null;
+}
+
+function aim(c) {
+  if (c === null || !myTurn() || state.board[0][c] !== 0) hideGhost();
+  else showGhost(c);
+}
+
+// mouse: hover previews, click drops. touch: press previews, slide aims,
+// release drops (release off the board to cancel).
+let aiming = false;
+function bindInput() {
+  const hits = $('hits');
+  hits.addEventListener('pointerdown', e => { aiming = true; aim(aimCol(e)); });
+  hits.addEventListener('pointermove', e => { if (aiming || e.pointerType === 'mouse') aim(aimCol(e)); });
+  hits.addEventListener('pointerup', e => {
+    if (!aiming) return;
+    aiming = false;
+    hideGhost();
+    const c = aimCol(e);
+    if (c !== null) clickCol(c);
+  });
+  hits.addEventListener('pointercancel', () => { aiming = false; hideGhost(); });
+  hits.addEventListener('pointerleave', () => { if (!aiming) hideGhost(); });
+  window.addEventListener('pointerup', () => { aiming = false; });
 }
 
 // ---- rendering ----
@@ -318,6 +357,7 @@ function render() {
 
 // ---- boot ----
 buildBoard();
+bindInput();
 
 if (DEMO) {
   state = {
@@ -335,11 +375,25 @@ if (DEMO) {
   };
   render();
 } else {
-  const es = new EventSource('/events?session=' + sid);
-  es.onmessage = e => { state = JSON.parse(e.data); render(); };
-  es.onerror = () => {
-    if (!state || state.phase !== 'busy') setStatus('reconnecting...', '');
+  let es = null;
+  const connect = () => {
+    const old = es;   // open the new stream before closing the old: no offline gap
+    es = new EventSource('/events?session=' + sid);
+    es.onmessage = e => { state = JSON.parse(e.data); render(); };
+    es.onerror = () => {
+      if (!state || state.phase !== 'busy') setStatus('reconnecting...', '');
+    };
+    if (old) old.close();
   };
+  connect();
+
+  // mobile browsers freeze background tabs and kill the stream; grab a fresh
+  // one on wake so the board is never stale
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    if (es.readyState !== EventSource.OPEN || Date.now() - hiddenAt > 30000) connect();
+  });
 }
 </script>
 </body>
