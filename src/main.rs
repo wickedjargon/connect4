@@ -472,8 +472,8 @@ async fn rematch(State(app): State<SharedApp>, headers: HeaderMap) -> impl IntoR
     (StatusCode::OK, "")
 }
 
-async fn index() -> Html<&'static str> {
-    Html(INDEX_HTML)
+async fn index() -> impl IntoResponse {
+    ([(header::CACHE_CONTROL, "no-store")], Html(INDEX_HTML))
 }
 
 async fn favicon() -> impl IntoResponse {
