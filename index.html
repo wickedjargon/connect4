@@ -210,7 +210,8 @@ function hideGhost() { $('ghost').classList.remove('show'); }
 
 function clickCol(c) {
   if (!myTurn() || state.board[0][c] !== 0) return;
-  hideGhost();
+  // keep the ghost up while the move is in flight; render() hides it in the
+  // same frame the falling disc appears, so the ghost morphs into the drop
   post('/move', { col: c });
 }
 
@@ -238,9 +239,9 @@ function bindInput() {
   hits.addEventListener('pointerup', e => {
     if (!aiming) return;
     aiming = false;
-    hideGhost();
     const c = aimCol(e);
     if (c !== null) clickCol(c);
+    else hideGhost();
   });
   hits.addEventListener('pointercancel', () => { aiming = false; hideGhost(); });
   hits.addEventListener('pointerleave', () => { if (!aiming) hideGhost(); });
