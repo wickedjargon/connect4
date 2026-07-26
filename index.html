@@ -230,6 +230,8 @@ function aim(c) {
 let aiming = false;
 function bindInput() {
   const hits = $('hits');
+  // Chrome Android: long-press fires contextmenu and pointercancels the drag
+  $('board').addEventListener('contextmenu', e => e.preventDefault());
   hits.addEventListener('pointerdown', e => { aiming = true; aim(aimCol(e)); });
   hits.addEventListener('pointermove', e => { if (aiming || e.pointerType === 'mouse') aim(aimCol(e)); });
   hits.addEventListener('pointerup', e => {
