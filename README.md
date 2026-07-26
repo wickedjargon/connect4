@@ -1,7 +1,13 @@
 # connect4
 
-Anonymous two-player Connect 4 at [connect4.fftp.io](https://connect4.fftp.io) — Rust/axum backend, single-file HTML/JS frontend, live over SSE.
+Two-player Connect 4 game.
+
+Try it at:
+
+[connect4.fftp.io](https://connect4.fftp.io) 
+
+or run your own instance:
 
 ```sh
-cargo run   # then open two tabs to play yourself
+cargo run 
 ```
