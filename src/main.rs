@@ -58,6 +58,8 @@ struct Game {
     win_line: Option<[[u8; 2]; 4]>,
     last_move: Option<[u8; 2]>,
     rematch: [bool; 2],
+    score: [u32; 2], // games won by each player; lives as long as the pair does
+    draws: u32,
     grace_end: [i64; 2], // unix seconds, 0 = none
     grace_gen: [u64; 2],
     next_conn_id: u64,
@@ -81,6 +83,9 @@ struct StateMsg<'a> {
     last_move: Option<[u8; 2]>,
     rematch_you: bool,
     rematch_opp: bool,
+    score_you: u32,
+    score_opp: u32,
+    draws: u32,
     grace_end: i64,
 }
 
@@ -97,6 +102,8 @@ impl Game {
             win_line: None,
             last_move: None,
             rematch: [false; 2],
+            score: [0; 2],
+            draws: 0,
             grace_end: [0; 2],
             grace_gen: [0; 2],
             next_conn_id: 0,
@@ -136,6 +143,9 @@ impl Game {
             last_move: self.last_move,
             rematch_you: self.rematch[idx],
             rematch_opp: self.rematch[other],
+            score_you: self.score[idx],
+            score_opp: self.score[other],
+            draws: self.draws,
             grace_end: if opp.is_some() { self.grace_end[other] } else { 0 },
         };
         serde_json::to_string(&msg).unwrap()
@@ -157,6 +167,8 @@ impl Game {
     fn remove_player(&mut self, idx: usize) {
         self.players[idx] = None;
         self.reset_board();
+        self.score = [0; 2];
+        self.draws = 0;
         self.phase = "waiting";
         self.starter = 1;
         self.turn = 0;
@@ -168,6 +180,7 @@ impl Game {
         self.phase = "finished";
         self.winner = 2 - idx as u8; // the other player's number
         self.win_reason = "forfeit";
+        self.score[1 - idx] += 1;
         self.rematch = [false; 2];
         self.grace_end = [0; 2];
     }
@@ -338,6 +351,8 @@ async fn events(
                 conns: Vec::new(),
             });
             g.reset_board();
+            g.score = [0; 2];
+            g.draws = 0;
             g.starter = 1;
             g.turn = 0;
             g.phase = if g.players[1 - free].is_some() {
@@ -439,10 +454,12 @@ async fn play_move(
         g.winner = me;
         g.win_reason = "connect4";
         g.win_line = Some(line);
+        g.score[idx] += 1;
     } else if g.full() {
         g.phase = "finished";
         g.winner = 0;
         g.win_reason = "draw";
+        g.draws += 1;
     } else {
         g.turn = 3 - g.turn;
     }

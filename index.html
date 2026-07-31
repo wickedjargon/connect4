@@ -54,6 +54,7 @@
   .dot.yellow { background: var(--yel2); }
   .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tag { color: var(--muted); }
+  .score { margin-left: auto; color: var(--muted); flex: none; }
   svg {
     display: block; width: 100%; height: auto; margin: 0.6em 0;
     max-height: 76vh; max-height: 76dvh;
@@ -99,6 +100,7 @@
     <div class="bar" id="oppbar">
       <span class="dot" id="oppdot"></span>
       <span class="name" id="oppname">waiting for opponent...</span>
+      <span class="score" id="oppscore"></span>
     </div>
 
     <svg id="board" viewBox="0 0 740 755" aria-label="connect 4 board">
@@ -135,9 +137,11 @@
     <div class="bar" id="youbar">
       <span class="dot" id="youdot"></span>
       <span class="name" id="youname"></span>
+      <span class="score" id="youscore"></span>
     </div>
     <div class="bar" id="statusbar">
       <span id="status">connecting...</span>
+      <span class="score" id="draws" hidden></span>
       <button id="action" hidden></button>
     </div>
   </div>
@@ -323,6 +327,13 @@ function render() {
     $('oppdot').className = 'dot';
   }
 
+  const wins = n => `${n} win${n === 1 ? '' : 's'}`;
+  const played = s.scoreYou + s.scoreOpp + s.draws > 0;
+  $('youscore').textContent = played ? wins(s.scoreYou) : '';
+  $('oppscore').textContent = played && s.oppIP ? wins(s.scoreOpp) : '';
+  $('draws').hidden = !s.draws;
+  if (s.draws) $('draws').textContent = `${s.draws} draw${s.draws === 1 ? '' : 's'}`;
+
   syncDiscs();
   if (!myTurn()) hideGhost();
 
@@ -374,6 +385,7 @@ if (DEMO) {
     phase: 'playing', you: 1, turn: 1, yourIP: '203.0.113.7', oppIP: '198.51.100.4',
     oppOnline: true, winner: 0, winReason: '', winLine: null, lastMove: [3, 3],
     rematchYou: false, rematchOpp: false, graceEnd: 0,
+    scoreYou: 2, scoreOpp: 1, draws: 1,
     board: [
       [0,0,0,0,0,0,0],
       [0,0,0,0,0,0,0],
