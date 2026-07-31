@@ -141,7 +141,6 @@
     </div>
     <div class="bar" id="statusbar">
       <span id="status">connecting...</span>
-      <span class="score" id="draws" hidden></span>
       <button id="action" hidden></button>
     </div>
   </div>
@@ -327,12 +326,11 @@ function render() {
     $('oppdot').className = 'dot';
   }
 
-  const wins = n => `${n} win${n === 1 ? '' : 's'}`;
+  // chess scoring: 1 per win, 0.5 each per draw
+  const pts = n => n % 1 ? n.toFixed(1) : String(n);
   const played = s.scoreYou + s.scoreOpp + s.draws > 0;
-  $('youscore').textContent = played ? wins(s.scoreYou) : '';
-  $('oppscore').textContent = played && s.oppIP ? wins(s.scoreOpp) : '';
-  $('draws').hidden = !s.draws;
-  if (s.draws) $('draws').textContent = `${s.draws} draw${s.draws === 1 ? '' : 's'}`;
+  $('youscore').textContent = played ? pts(s.scoreYou + s.draws / 2) : '';
+  $('oppscore').textContent = played && s.oppIP ? pts(s.scoreOpp + s.draws / 2) : '';
 
   syncDiscs();
   if (!myTurn()) hideGhost();
